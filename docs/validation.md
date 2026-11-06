@@ -18,4 +18,4 @@ Dataset: OpenML 31 (UCI Statlog German Credit, CC BY 4.0), 1000 rows, positive c
 
 `tests/test_training.py` checks: artifact SHA-256 matches manifest, dataset hash matches, reloaded artifact reproduces stored test metrics, model beats baseline.
 
-Open items: threshold fixed at 0.5 (German Credit's 5:1 cost matrix not applied yet; revisit in model card, PA-03). CI not run yet (PA-05).
+Open items: threshold fixed at 0.5 (German Credit's 5:1 cost matrix not applied yet; handled in PA-03). CI not set up yet (PA-02).
