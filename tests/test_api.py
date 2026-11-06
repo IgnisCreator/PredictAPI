@@ -98,3 +98,21 @@ def test_tampered_artifact_is_refused(tmp_path, monkeypatch, rows):
         assert c.get("/models").json()["unavailable"] == {tampered: "artifact hash mismatch"}
         other = next(v for v in VERSIONS if v != tampered)
         assert c.post("/predict", params={"model_version": other}, json=as_payload(rows, 0)).status_code == 200
+
+
+def test_rate_limit_returns_429(monkeypatch, rows):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "3")
+    with TestClient(app) as c:
+        codes = [c.post("/predict", json=as_payload(rows, 0)).status_code for _ in range(4)]
+        assert codes == [200, 200, 200, 429]
+        assert "Retry-After" in c.post("/predict", json=as_payload(rows, 0)).headers
+        assert c.get("/health").status_code == 200  # los health checks no se limitan
+
+
+def test_database_down_still_serves_predictions(monkeypatch, rows):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://nobody:nothing@127.0.0.1:1/none")
+    with TestClient(app) as c:
+        res = c.post("/predict", json=as_payload(rows, 0))
+        assert res.status_code == 200
+        assert res.json()["logged"] is False
+        assert c.get("/ready").json()["database"] == "unavailable"

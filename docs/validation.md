@@ -61,3 +61,36 @@ Default stays v1 (higher CV AUC on train). Manifest `default: "v1"`.
 Sample `/explain` (dataset row 1, duration 48, credit_amount 5951, age 22): v1 P(bad)=0.559 → bad; top factors duration +0.755, checking_status +0.375, credit_amount +0.336, savings_status +0.328, installment_commitment −0.320. v2 agrees on the top three.
 
 CI on GitHub: PR #3, run 42136056043 `success`.
+
+## PA-04 — Persistence + monitoring (2026-11-05, local)
+
+```
+cp .env.example .env            # random local password
+docker compose up -d --build --wait
+DATABASE_URL=... uv run pytest -q   # 20 passed (includes tests/test_db.py against compose Postgres)
+```
+
+- API container: `/ready` → `{"status":"ready","default_model":"v1","database":"ok"}`. Migration `001_create_prediction_log.sql` recorded in `schema_migrations`.
+- Logged rows link each inference to its artifact: `predict v1 e75b496b43b6… 0.650 bad 22.1 ms`, `explain v2 91d7e3fdb139… 0.521 bad 16.9 ms`.
+- DB outage (`docker compose stop db`): `/predict` 200 with `"logged": false`; `/ready` 200 with `"database":"unavailable"`.
+  - Before the circuit breaker, every request took about 8.0 s (DNS resolution).
+  - After it, the first request took 8.04 s and the next ones 0.016 s and 0.020 s; `/ready` took 0.005 s.
+  - After `docker compose start db` and the 30 s cooldown, `"logged": true` again.
+- Rate limit: tests check 3 allowed + 4th → 429 with `Retry-After`; `/health` not limited. `send_traffic.py` hit 429 at the default 60/min, as designed.
+- Image size (dev Dockerfile): 1.32 GB. Reduction is a PA-05 task.
+
+Drift (API started with `RATE_LIMIT_PER_MINUTE=1000`; reference = 800 train rows; current = 200 logged rows):
+
+```
+uv run python monitoring/send_traffic.py            # sent 200, logged 200
+uv run --group monitoring python monitoring/drift_report.py
+uv run python monitoring/send_traffic.py --shift    # credit_amount x3, duration x2
+uv run --group monitoring python monitoring/drift_report.py --since <time before the shifted batch>
+```
+
+| Scenario | Drifted columns | Columns flagged |
+| --- | --- | --- |
+| Test split as-is | 2 / 20 (10%) | purpose (chi² p=0.0034), employment (chi² p=0.0115) |
+| Shifted | 4 / 20 (20%) | duration (K-S p<0.0001), credit_amount (K-S p<0.0001), purpose, employment |
+
+Reading: the shifted columns are detected. The two flags in the unshifted batch are sampling noise between the 200-row test split and the 800-row train split; with 20 columns at α=0.05 about 1 false flag is expected. Neither batch crosses Evidently's dataset-level drift share (50%).

@@ -5,7 +5,9 @@ Run: uv run fastapi dev app/main.py  (Swagger UI at /docs)
 
 import hashlib
 import json
+import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,9 +16,12 @@ from typing import Literal
 import joblib
 import numpy as np
 import pandas as pd
+import psycopg
 import shap
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, create_model
+
+from app import db
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = ROOT / "models" / "manifest.json"
@@ -68,6 +73,7 @@ class Prediction(BaseModel):
     threshold: float
     model_version: str
     request_id: str
+    logged: bool = False
 
 
 class Contribution(BaseModel):
@@ -88,10 +94,30 @@ async def lifespan(app):
     manifest = json.loads(Path(manifest_path).read_text())
     app.state.models, app.state.errors = load_models(manifest_path)
     app.state.default = manifest.get("default", manifest["models"][-1]["version"])
+    app.state.rate_limit = int(os.environ.get("RATE_LIMIT_PER_MINUTE", 60))
+    app.state.window, app.state.hits = None, {}
+    db.down_until = 0.0
+    if os.environ.get("DATABASE_URL"):
+        try:
+            db.migrate()
+        except psycopg.Error as exc:
+            logging.getLogger("predictapi").warning("migrations not applied, predictions will not be logged: %s", exc)
     yield
 
 
-app = FastAPI(title="PredictAPI", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="PredictAPI", version="0.4.0", lifespan=lifespan)
+
+
+def rate_limit(request: Request):
+    # ponytail: ventana fija de 1 minuto en memoria por proceso; con varias réplicas, límite en Redis o el gateway
+    window = int(time.time() // 60)
+    if window != app.state.window:
+        app.state.window, app.state.hits = window, {}
+    client = request.client.host if request.client else "unknown"
+    app.state.hits[client] = app.state.hits.get(client, 0) + 1
+    if app.state.hits[client] > app.state.rate_limit:
+        retry_after = str(60 - int(time.time()) % 60)
+        raise HTTPException(429, detail="rate limit exceeded", headers={"Retry-After": retry_after})
 
 
 def resolve(model_version):
@@ -114,7 +140,22 @@ def score(application, model_version):
         model_version=model_version,
         request_id=str(uuid.uuid4()),
     )
-    return prediction, X, model, explainer
+    return prediction, X, entry, model, explainer
+
+
+def record(prediction, endpoint, entry, X, started):
+    prediction.logged = db.log_prediction({
+        "request_id": prediction.request_id,
+        "endpoint": endpoint,
+        "model_version": prediction.model_version,
+        "model_sha256": entry["artifact_sha256"],
+        "features": X.to_dict("records")[0],  # tipos nativos de Python, serializables a JSON
+        "probability_bad": prediction.probability_bad,
+        "threshold": prediction.threshold,
+        "prediction": prediction.prediction,
+        "latency_ms": (time.perf_counter() - started) * 1000,
+    })
+    return prediction
 
 
 @app.get("/health")
@@ -126,7 +167,7 @@ def health():
 def ready():
     if app.state.default not in app.state.models:
         raise HTTPException(503, detail={"status": "not ready", "errors": app.state.errors})
-    return {"status": "ready", "default_model": app.state.default}
+    return {"status": "ready", "default_model": app.state.default, "database": db.status()}
 
 
 @app.get("/models")
@@ -139,15 +180,18 @@ def list_models():
     }
 
 
-@app.post("/predict", response_model=Prediction)
+@app.post("/predict", response_model=Prediction, dependencies=[Depends(rate_limit)])
 def predict(application: CreditApplication, model_version: str | None = None):
-    return score(application, model_version)[0]
+    started = time.perf_counter()
+    prediction, X, entry, _, _ = score(application, model_version)
+    return record(prediction, "predict", entry, X, started)
 
 
-@app.post("/explain", response_model=Explanation)
+@app.post("/explain", response_model=Explanation, dependencies=[Depends(rate_limit)])
 def explain(application: CreditApplication, model_version: str | None = None):
     """SHAP contribution of each input to the log-odds of `bad`, largest first."""
-    prediction, X, model, explainer = score(application, model_version)
+    started = time.perf_counter()
+    prediction, X, entry, model, explainer = score(application, model_version)
     prep = model[0]
     Xt = prep.transform(X)
     result = explainer(Xt.toarray() if hasattr(Xt, "toarray") else Xt)
@@ -165,6 +209,7 @@ def explain(application: CreditApplication, model_version: str | None = None):
         Contribution(feature=f, value=row[f].item() if hasattr(row[f], "item") else row[f], shap=float(v))
         for f, v in per_feature.sort_values(key=abs, ascending=False).items()
     ]
+    record(prediction, "explain", entry, X, started)
     return Explanation(
         **prediction.model_dump(),
         base_log_odds=base,

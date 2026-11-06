@@ -22,12 +22,15 @@ El usuario puede no ser programador. Explica cada decisión técnica en 1 o 2 fr
 
 ## 4. Estructura
 ```
-app/          API FastAPI (aparece en PA-02)
+app/          API FastAPI (main.py) y acceso a PostgreSQL (db.py)
 training/     scripts de entrenamiento
 models/       artefactos versionados + manifest.json
-tests/        pytest
-docs/         backlog.md, decisions.md, validation.md
+migrations/   SQL numerado, aplicado al arrancar la API
+monitoring/   tráfico de prueba y reporte de drift (grupo uv `monitoring`)
+tests/        pytest (test_db.py necesita DATABASE_URL)
+docs/         backlog.md, decisions.md, validation.md, model_card.md
 data/         caché del dataset (ignorado por git)
+reports/      reportes HTML de drift (ignorado por git)
 ```
 Menos archivos es mejor. No crear capas ni abstracciones hasta que una segunda implementación las necesite.
 
