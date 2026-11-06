@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.162.0",
     "pandas>=3.0.6",
+    "psycopg[binary]>=3.3.8",
     "scikit-learn>=1.9.1",
     "shap>=0.54.1",
 ]
@@ -12,6 +13,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+]
+monitoring = [
+    "evidently>=0.7.23",
 ]
 
 [tool.pytest.ini_options]
