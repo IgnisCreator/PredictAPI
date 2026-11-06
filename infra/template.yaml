@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: PredictAPI on AWS Lambda (container image + public Function URL)
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: PostgreSQL connection string (Neon). Empty disables prediction logging.
+  RateLimitPerMinute:
+    Type: Number
+    Default: 60
+
+Resources:
+  PredictApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/predictapi
+      RetentionInDays: 14
+
+  PredictApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: predictapi
+      PackageType: Image
+      Architectures: [x86_64]
+      MemorySize: 2048
+      Timeout: 30
+      LoggingConfig:
+        LogGroup: !Ref PredictApiLogs
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          RATE_LIMIT_PER_MINUTE: !Ref RateLimitPerMinute
+      # SAM agrega los permisos lambda:InvokeFunctionUrl y lambda:InvokeFunction que exige AuthType NONE
+      FunctionUrlConfig:
+        AuthType: NONE
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ..
+      DockerTag: latest
+
+Outputs:
+  ApiUrl:
+    Description: Public base URL; Swagger UI at /docs
+    Value: !GetAtt PredictApiFunctionUrl.FunctionUrl

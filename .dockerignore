@@ -7,3 +7,7 @@ training
 docs
 **/__pycache__
 .env
+.aws-sam
+infra
+monitoring
+.github

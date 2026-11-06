@@ -94,3 +94,24 @@ uv run --group monitoring python monitoring/drift_report.py --since <time before
 | Shifted | 4 / 20 (20%) | duration (K-S p<0.0001), credit_amount (K-S p<0.0001), purpose, employment |
 
 Reading: the shifted columns are detected. The two flags in the unshifted batch are sampling noise between the 200-row test split and the 800-row train split; with 20 columns at α=0.05 about 1 false flag is expected. Neither batch crosses Evidently's dataset-level drift share (50%).
+
+CI on GitHub: PR #4, run 42139754297 `success` (pytest against a Postgres service + `docker build`).
+
+## PA-05 — Delivery (2026-11-05, local; AWS pending)
+
+Production image (multi-stage, non-root `app` user, Lambda Web Adapter 0.9.1): **795 MB** (dev image was 1.32 GB). The portfolio's <200 MB target is not reachable with scipy + pandas + scikit-learn + numpy (~300 MB of the 455 MB virtualenv).
+
+Latency, client side, `monitoring/load_test.py` against the production image in `docker compose` (Windows 11, Docker Desktop VM with 16 CPUs, 1 uvicorn worker, prediction logging to compose Postgres, `RATE_LIMIT_PER_MINUTE=100000`), test-split rows round-robin, 0 errors in every run:
+
+| Endpoint | Requests | Concurrency | p50 | p95 | p99 | Throughput |
+| --- | --- | --- | --- | --- | --- | --- |
+| /predict | 500 | 10 | 135.1 ms | 172.7 ms | 189.0 ms | 73.7 req/s |
+| /explain | 500 | 10 | 221.4 ms | 296.5 ms | 318.7 ms | 45.1 req/s |
+| /predict | 200 | 1 | 68.1 ms | 72.5 ms | 75.4 ms | 14.8 req/s |
+| /explain | 200 | 1 | 74.2 ms | 81.2 ms | 86.3 ms | 13.6 req/s |
+| /predict, no DB | 200 | 1 | 53.2 ms | 57.1 ms | 58.3 ms | 18.8 req/s |
+| /explain, no DB | 200 | 1 | 60.9 ms | 67.6 ms | 70.2 ms | 16.2 req/s |
+
+Breakdown: server-side inference (`latency_ms` in `prediction_log`) p50 8.0 ms, p95 10.0 ms. The DB write adds about 15 ms (one connection per request, ADR-005). The remaining ~45 ms is Windows-to-Docker networking, not the API.
+
+Infra: `uvx cfn-lint infra/template.yaml infra/github-oidc.yaml` → exit 0. Not yet deployed: needs the one-time AWS bootstrap (README, "Deploy to AWS").
