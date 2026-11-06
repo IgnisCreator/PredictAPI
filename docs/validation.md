@@ -95,6 +95,8 @@ uv run --group monitoring python monitoring/drift_report.py --since <time before
 
 Reading: the shifted columns are detected. The two flags in the unshifted batch are sampling noise between the 200-row test split and the 800-row train split; with 20 columns at α=0.05 about 1 false flag is expected. Neither batch crosses Evidently's dataset-level drift share (50%).
 
+CI on GitHub: PR #4, run 42139754297 `success` (pytest against a Postgres service + `docker build`).
+
 ## PA-05 — Delivery (2026-11-05, local; AWS pending)
 
 Production image (multi-stage, non-root `app` user, Lambda Web Adapter 0.9.1): **795 MB** (dev image was 1.32 GB). The portfolio's <200 MB target is not reachable with scipy + pandas + scikit-learn + numpy (~300 MB of the 455 MB virtualenv).
