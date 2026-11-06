@@ -59,3 +59,5 @@ Default stays v1 (higher CV AUC on train). Manifest `default: "v1"`.
 `tests/test_api.py` adds: both versions match the offline model at their threshold; `/explain` returns 20 contributions sorted by |SHAP| whose sum plus base equals the log-odds of the returned probability (abs 1e-6), for v1 (LinearExplainer) and v2 (TreeExplainer); unknown version → 404; tampered default → 503 while the other version keeps serving.
 
 Sample `/explain` (dataset row 1, duration 48, credit_amount 5951, age 22): v1 P(bad)=0.559 → bad; top factors duration +0.755, checking_status +0.375, credit_amount +0.336, savings_status +0.328, installment_commitment −0.320. v2 agrees on the top three.
+
+CI on GitHub: PR #3, run 42136056043 `success`.
