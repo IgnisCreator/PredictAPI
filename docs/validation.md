@@ -32,4 +32,4 @@ curl -X POST localhost:8765/predict -d '<row: checking_status "<0", duration 48,
 
 `tests/test_api.py` checks: API probability and label equal the offline model on 5 dataset rows; missing field, unknown category, negative amount, wrong type and extra field each return 422; with a tampered manifest hash `/health` stays 200 while `/ready` and `/predict` return 503 and `/models` reports `artifact hash mismatch`.
 
-Open item: CI run on GitHub (PR #2) pending at time of writing.
+CI on GitHub: PR #2, runs 42134373517 and 42134421566, both `success` (`uv sync --locked` + `pytest`, ubuntu-latest).
