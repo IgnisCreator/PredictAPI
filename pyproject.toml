@@ -6,6 +6,7 @@ dependencies = [
     "fastapi[standard]>=0.162.0",
     "pandas>=3.0.6",
     "scikit-learn>=1.9.1",
+    "shap>=0.54.1",
 ]
 
 [dependency-groups]
